@@ -1,0 +1,37 @@
+<div
+  className="bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-700 p-8 max-w-md w-full shadow-2xl text-center">
+  <div className="flex flex-col items-center gap-6">
+    <div className="relative">
+      <div className="absolute -inset-4 bg-purple-500/10 rounded-full blur-md"></div>
+      <div className="bg-gradient-to-br from-purple-600 to-indigo-600 p-4 rounded-full relative">
+        <Swords className="h-8 w-8 text-white" />
+      </div>
+    </div>
+
+    <h1 className="text-2xl font-bold text-white">Game Started!</h1>
+    <p className="text-gray-400">
+      Both players are ready. Let the guessing begin!
+    </p>
+
+    <div className="mt-6 w-full space-y-4">
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-gray-400">Opponent:</span>
+        <span className="font-medium text-white">
+          {opponentName || "Anonymous"}
+        </span>
+      </div>
+      <div className="flex items-center justify-between text-sm">
+        <span className="text-gray-400">Your Role:</span>
+        <span className="font-medium text-white">
+          {isHost ? "Host" : "Player"}
+        </span>
+      </div>
+    </div>
+
+    <Button
+      className="mt-6 w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700">
+      <Shield className="mr-2 h-4 w-4" />
+      Begin Guessing
+    </Button>
+  </div>
+</div>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import {
   InputOTP,
   InputOTPGroup,
@@ -15,7 +15,7 @@ import socket from "@/utils/socket";
 interface Props {
   roomId: string;
   playerId: string;
-  onSubmit?: () => void;
+  onSubmit?: (number: string) => void; // updated to accept the number
 }
 
 const SetDigitModal = ({ roomId, playerId, onSubmit }: Props) => {
@@ -23,23 +23,19 @@ const SetDigitModal = ({ roomId, playerId, onSubmit }: Props) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = () => {
-    console.log("Socket connected:", socket.connected);
-    console.log("Socket ID:", socket.id);
     console.log("Attempting to submit:", { number, roomId, playerId });
-    console.log(
-      "roomId type:",
-      typeof roomId,
-      "playerId type:",
-      typeof playerId
-    );
 
     const joinState = joinGameModel.getState();
-    const actualPlayerId = playerId || joinState.playerId || socket.id;
+    const actualPlayerId =
+      playerId ||
+      joinState.playerId ||
+      sessionStorage.getItem("playerId") ||
+      socket.id;
 
-    console.log("Using playerId:", actualPlayerId);
-    console.log("Final roomId to use:", roomId || joinState.roomId);
+    const finalRoomId =
+      roomId || joinState.roomId || sessionStorage.getItem("roomId");
 
-    const finalRoomId = roomId || joinState.roomId;
+    console.log("Final values:", { finalRoomId, actualPlayerId });
 
     if (!finalRoomId || !actualPlayerId) {
       toast.error("Missing Information", {
@@ -54,43 +50,66 @@ const SetDigitModal = ({ roomId, playerId, onSubmit }: Props) => {
       });
       return;
     }
-    console.log("Emitting setDigit with:", {
+
+    setIsSubmitting(true);
+
+    const handleSuccess = (data: any) => {
+      console.log("Secret submitted successfully:", data);
+      setIsSubmitting(false);
+      sessionStorage.setItem("secretNumber", number);
+
+      toast("Code Locked In!", {
+        description: "Your secret number has been securely stored.",
+        icon: <ShieldCheck className="w-4 h-4" />,
+      });
+
+      // Clean up listeners
+      cleanup();
+
+      // Force a small delay to ensure sessionStorage is set
+      setTimeout(() => {
+        console.log("Calling onSubmit callback");
+        onSubmit?.(number); // call with the entered number
+      }, 100);
+    };
+
+    const handleError = (error: string) => {
+      console.error("Error setting secret number:", error);
+      setIsSubmitting(false);
+
+      toast.error("Submission Failed", {
+        description: error || "There was an issue setting your number.",
+      });
+
+      cleanup();
+    };
+
+    const cleanup = () => {
+      socket.off("secretSubmitted", handleSuccess);
+      socket.off("error", handleError);
+      clearTimeout(timeoutId);
+    };
+
+    // Listen for backend response
+    socket.once("secretSubmitted", handleSuccess);
+    socket.once("error", handleError);
+
+    // Timeout fallback
+    const timeoutId = setTimeout(() => {
+      console.log("Timeout reached - no response from server");
+      setIsSubmitting(false);
+      toast.error("Timeout", {
+        description: "Server took too long to respond. Please try again.",
+      });
+      cleanup();
+    }, 5000);
+
+    // Emit the event
+    socket.emit("submitSecret", {
       roomId: finalRoomId,
       playerId: actualPlayerId,
       secretNumber: number,
     });
-
-    setIsSubmitting(true);
-    socket.emit(
-      "setDigit",
-      { roomId, playerId: actualPlayerId, secretNumber: number },
-      (response: { success: boolean; error?: string }) => {
-        console.log("Socket response:", response);
-        setIsSubmitting(false);
-
-        if (response?.success) {
-          toast("Code Locked In!", {
-            description: "Your secret number has been securely stored.",
-            icon: <ShieldCheck className="w-4 h-4" />,
-          });
-          console.log("Secret number set successfully:", number);
-          onSubmit?.();
-        } else {
-          const errorMessage = response?.error || "Unknown server error";
-
-          console.error(
-            "Error setting secret number:",
-            number,
-            "Error:",
-            errorMessage
-          );
-          toast("Submission Failed", {
-            description: errorMessage,
-          });
-          // console.error("Failed to set secret number:", number);
-        }
-      }
-    );
   };
 
   return (

@@ -2,6 +2,11 @@
 import socket from "@/utils/socket";
 import { toast } from "sonner";
 
+export interface Player {
+  id: string;
+  name: string;
+}
+
 export interface JoinGameState {
   roomCode: string;
   roomId: string;
@@ -9,6 +14,7 @@ export interface JoinGameState {
   playerName: string;
   isPlayerJoined: boolean; // Indicates if the player has successfully joined
   isLoading: boolean;
+  players: Player[]; // <-- Add this line
 }
 
 export interface JoinGameResponse {
@@ -25,9 +31,34 @@ export class JoinGameModel {
     playerName: "",
     isPlayerJoined: false,
     isLoading: false,
+    players: [],
   };
 
   private listeners: Array<(state: JoinGameState) => void> = [];
+
+  constructor() {
+    // Attach socket listeners in the constructor to ensure `this` context is correct
+    socket.on("gameStarted", (data: { roomId: string; roomCode: string }) => {
+      const { roomId, roomCode } = data;
+      const joinGameState = this.getState();
+      if (
+        joinGameState.roomId === roomId &&
+        joinGameState.roomCode === roomCode
+      ) {
+        toast("Game has started! You can now play.");
+      }
+    });
+
+    socket.on("roomData", (data) => {
+      // Safely handle possibly undefined data or players
+      this.state = {
+        ...this.state,
+        players: Array.isArray(data && data.players) ? data.players : [],
+        // ...other fields if needed...
+      };
+      this.notifyListeners();
+    });
+  }
 
   // Subscribe to state changes
   subscribe(listener: (state: JoinGameState) => void) {
@@ -53,6 +84,29 @@ export class JoinGameModel {
     this.notifyListeners();
   }
 
+  // Navigate to waiting room
+  navigateToWaitingRoom() {
+    const { roomCode, roomId, playerId } = this.state;
+    if (!roomId || !playerId) {
+      toast.error("Cannot navigate to waiting room", {
+        description: "You must join a game first.",
+      });
+      return;
+    } else {
+      // Emit event to server to notify players
+      socket.emit("moveToWaitingRoom", {
+        roomId,
+        roomCode,
+        playerId,
+      });
+      console.log("Navigating to waiting room with state:", {
+        roomCode,
+        roomId,
+        playerId,
+      });
+    }
+  }
+
   // Update player name
   setPlayerName(playerName: string) {
     this.state.playerName = playerName;
@@ -71,11 +125,14 @@ export class JoinGameModel {
   }
 
   // Join game logic
-  async joinGame(): Promise<void> {
+  async joinGame(): Promise<JoinGameResponse> {
+    console.log("=== JOIN GAME MODEL DEBUG ===");
+    console.log("Starting joinGame, current state:", this.getState());
+
     const validationError = this.validateInput();
     if (validationError) {
-      toast(validationError);
-      return;
+      toast.error(validationError);
+      throw new Error(validationError);
     }
 
     // Check if player is already joined
@@ -83,7 +140,7 @@ export class JoinGameModel {
       toast("Already joined", {
         description: "You have already joined this game.",
       });
-      return;
+      return { error: "Already joined" };
     }
 
     this.state.isLoading = true;
@@ -96,24 +153,31 @@ export class JoinGameModel {
         this.state.playerName,
         ({ roomId, playerId, error }: JoinGameResponse) => {
           console.log("joinGame response:", { roomId, playerId, error });
+
           this.state.isLoading = false;
 
           if (error) {
+            console.log("Join failed with error:", error);
+
             toast(error);
+            this.notifyListeners();
+            // reject(new Error(error));
           } else {
+            console.log("Join successful, updating state...");
+
             this.state.roomId = roomId || "";
             this.state.playerId = playerId || "";
             this.state.isPlayerJoined = true; // Set to true on successful join
+
             console.log("Updated joinGameModel state:", {
               roomId: this.state.roomId,
               playerId: this.state.playerId,
               isPlayerJoined: this.state.isPlayerJoined,
             });
-            toast("Successfully joined the game!");
+            toast.success("Successfully joined the game!");
+            this.notifyListeners();
+            resolve({ roomId, playerId });
           }
-
-          this.notifyListeners();
-          resolve();
         }
       );
     });
@@ -128,6 +192,7 @@ export class JoinGameModel {
       playerName: "",
       isPlayerJoined: false,
       isLoading: false,
+      players: [], // Reset players array
     };
     this.notifyListeners();
   }
@@ -139,17 +204,6 @@ export class JoinGameModel {
     );
   }
 }
-
-// Join Game When host starts the game
-socket.on("gameStarted", (data: { roomId: string; roomCode: string }) => {
-  const { roomId, roomCode } = data;
-  const joinGameState = joinGameModel.getState();
-  if (joinGameState.roomId === roomId && joinGameState.roomCode === roomCode) {
-    // joinGameModel.setRoomCode(roomCode);
-    // joinGameModel.reset();
-    toast("Game has started! You can now play.");
-  }
-});
 
 // Export singleton instance
 export const joinGameModel = new JoinGameModel();

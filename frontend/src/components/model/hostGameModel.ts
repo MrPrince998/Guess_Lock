@@ -29,7 +29,7 @@ export class HostGameModel {
     players: [],
     isHosting: false,
     isLoading: false,
-    hostName: "Host",
+    hostName: "",
   };
 
   private listeners: Array<(state: HostGameState) => void> = [];
@@ -71,6 +71,16 @@ export class HostGameModel {
     socket.on("playerDisconnected", (playerName: string) => {
       console.log("Player disconnected event received:", playerName);
       this.removePlayer(playerName);
+    });
+
+    socket.on("roomData", (data) => {
+      // data.players should be an array of { id, name }
+      this.state = {
+        ...this.state,
+        players: data.players,
+        // ...other fields if needed...
+      };
+      this.notifyListeners();
     });
 
     this.socketListenersInitialized = true;
@@ -129,7 +139,7 @@ export class HostGameModel {
   // Create a new game
   async createGame(): Promise<void> {
     const currentHostName = localStorage.getItem("playerName");
-    const hostName = currentHostName || "Host";
+    const hostName = currentHostName || "Guest";
 
     this.setHostName(hostName);
     this.state.isLoading = true;
@@ -241,6 +251,7 @@ export class HostGameModel {
       socket.off("playerJoined");
       socket.off("playerLeft");
       socket.off("playerDisconnected");
+      socket.off("roomData");
       this.socketListenersInitialized = false;
     }
   }

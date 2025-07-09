@@ -27,6 +27,50 @@ const JoinGame = () => {
     return unsubscribe;
   }, []);
 
+  // Add debugging for component renders
+  console.log("JoinGame rendering with state:", state);
+
+  // const handleJoinGame = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+
+  //   console.log("=== JOIN GAME DEBUG ===");
+  //   console.log("Current state before join:", state);
+
+  //   if (!state.roomCode || state.roomCode.length < 4) {
+  //     toast.error("Invalid Room Code", {
+  //       description: "Please enter a valid 4-character room code",
+  //     });
+  //     return;
+  //   }
+
+  //   const playerName = currentPlayerName || "Guest";
+  //   joinGameModel.setPlayerName(playerName);
+  //   localStorage.setItem("playerName", playerName);
+
+  //   try {
+  //     console.log("Calling joinGame...");
+  //     // setState(joinGameModel.isJoined(true));
+  //     const response = await joinGameModel.joinGame();
+  //     console.log("Join Game Response:", response);
+  //     console.log("State after joinGame:", joinGameModel.getState());
+
+  //     // Force a state update to make sure the component re-renders
+  //     setState(joinGameModel.getState());
+
+  //     if (response && !response.error) {
+  //       toast.success("Joined Successfully", {
+  //         description: `Entering room ${state.roomCode}`,
+  //       });
+  //     }
+  //   } catch (error) {
+  //     console.error("Join game error:", error);
+  //     toast.error("Join Failed", {
+  //       description:
+  //         "Couldn't join the room. Please check the code and try again.",
+  //     });
+  //   }
+  // };
+
   const handleJoinGame = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -42,12 +86,24 @@ const JoinGame = () => {
     localStorage.setItem("playerName", playerName);
 
     try {
-      // setState(joinGameModel.isJoined(true));
-      await joinGameModel.joinGame();
-      toast.success("Joined Successfully", {
-        description: `Entering room ${state.roomCode}`,
-      });
+      const response = await joinGameModel.joinGame();
+      console.log("Join Game Response:", response);
+
+      if (response && !response.error) {
+        // Force immediate state update
+        setState((prev) => ({
+          ...prev,
+          isPlayerJoined: true,
+          roomId: response.roomId || prev.roomId,
+          playerId: response.playerId || prev.playerId,
+        }));
+
+        toast.success("Joined Successfully", {
+          description: `Entering room ${state.roomCode}`,
+        });
+      }
     } catch (error) {
+      console.error("Join game error:", error);
       toast.error("Join Failed", {
         description:
           "Couldn't join the room. Please check the code and try again.",
@@ -59,6 +115,12 @@ const JoinGame = () => {
     joinGameModel.reset();
   };
 
+  // useEffect(() => {
+  //   if (state.isPlayerJoined) {
+  //     // Automatically navigate to the waiting room after joining
+  //     joinGameModel.navigateToWaitingRoom();
+  //   }
+  // }, [state.isPlayerJoined]);
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -139,6 +201,7 @@ const JoinGame = () => {
           </div>
         </AlertDialogContent>
       )}
+
       {state.isPlayerJoined && (
         <WaitingRoom isHost={false} onClose={handleClose} />
       )}

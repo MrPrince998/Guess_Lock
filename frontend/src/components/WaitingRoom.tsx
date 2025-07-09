@@ -6,12 +6,21 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogDescription, // Add this import
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Users, Copy, Gamepad2, Clock, User, ArrowRight } from "lucide-react";
+import {
+  Users,
+  Copy,
+  Gamepad2,
+  Clock,
+  User,
+  ArrowRight,
+  Lightbulb,
+} from "lucide-react";
 import socket from "@/utils/socket";
 
 interface WaitingRoomProps {
@@ -39,7 +48,7 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
         const navigationState = {
           roomCode: hostState.roomCode,
           roomId: hostState.roomId,
-          playerId: socket.id, // Host uses socket.id
+          playerId: socket.id,
           isHost: true,
         };
         console.log("Host navigating with state:", navigationState);
@@ -48,26 +57,28 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
           state: navigationState,
         });
       } else {
-        // For joined players, try multiple sources for roomId
-        const finalRoomId =
-          joinState.roomId || gameData.roomId || hostState.roomId;
+        // Get roomId from multiple sources for joined players
+        const roomId = joinState.roomId || gameData.roomId;
+        const roomCode = joinState.roomCode || gameData.roomCode;
 
-        if (!finalRoomId) {
+        if (!roomId) {
           console.error("No roomId available for navigation");
+          console.log("Available data:", { joinState, gameData });
           toast.error("Navigation Error", {
             description: "Room ID is missing. Please rejoin the game.",
           });
           return;
         }
+
         const navigationState = {
-          roomCode: joinState.roomCode,
-          roomId: finalRoomId,
-          playerId: joinState.playerId, // Use the playerId from joinGame response
+          roomCode: roomCode,
+          roomId: roomId,
+          playerId: joinState.playerId,
           isHost: false,
         };
         console.log("Player navigating with state:", navigationState);
 
-        navigate(`/game/${finalRoomId}`, {
+        navigate(`/game/${roomId}`, {
           state: navigationState,
         });
       }
@@ -93,7 +104,7 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
 
   const roomCode = isHost ? hostState.roomCode : joinState.roomCode;
   const players = isHost ? hostState.players : [];
-  const currentPlayerName = localStorage.getItem("playerName");
+  const currentPlayerName = localStorage.getItem("playerName") || "Guest";
 
   const handleStartGame = () => {
     if (isHost) {
@@ -106,11 +117,12 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
   };
 
   const handleClose = () => {
-    if (isHost) {
-      hostGameModel.closeHosting();
-    } else {
-      joinGameModel.reset();
-    }
+    // Don't reset the models when closing - this clears important data
+    // if (isHost) {
+    //   hostGameModel.closeHosting();
+    // } else {
+    //   joinGameModel.reset(); // ❌ This is clearing roomId and roomCode!
+    // }
     onClose();
   };
 
@@ -138,6 +150,11 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
               </>
             )}
           </AlertDialogTitle>
+          <AlertDialogDescription className="text-gray-300 text-sm">
+            {isHost
+              ? "Share your room code with friends to invite them to the game"
+              : "Waiting for the host to start the game"}
+          </AlertDialogDescription>
         </AlertDialogHeader>
       </div>
 
@@ -172,7 +189,11 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
         <div className="space-y-4">
           <div className="flex items-center gap-2 text-gray-300">
             <Users className="h-5 w-5" />
-            <h3 className="font-medium">Players ({players.length + 1}/2)</h3>
+            {isHost ? (
+              <h3 className="font-medium">Players ({players.length}/2)</h3>
+            ) : (
+              <h3 className="font-medium">Players ({players.length + 1}/2)</h3>
+            )}
           </div>
 
           <div className="bg-gray-800/50 rounded-lg p-4 space-y-3">
@@ -218,8 +239,40 @@ const WaitingRoom = ({ isHost, onClose }: WaitingRoomProps) => {
                   );
               })
             ) : (
-              <div className="text-center py-4 text-gray-400">
-                <p>Waiting for opponent to join...</p>
+              <div className="text-center py-8">
+                <div className="flex flex-col items-center justify-center gap-4 min-h-[200px]">
+                  {/* Animated loading indicator */}
+                  <div className="relative w-20 h-20">
+                    <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin"></div>
+                    <div className="absolute inset-2 rounded-full border-4 border-indigo-500 border-t-transparent animate-spin animation-delay-200"></div>
+                    <Gamepad2 className="absolute inset-4 w-8 h-8 text-purple-400 animate-pulse" />
+                  </div>
+
+                  {/* Text with typing animation */}
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-medium text-gray-100">
+                      Waiting for opponent
+                    </h3>
+                    <p className="text-gray-400 max-w-md mx-auto">
+                      Share room code{" "}
+                      <span className="font-bold text-purple-300">
+                        {roomCode}
+                      </span>{" "}
+                      with your friend
+                    </p>
+                  </div>
+
+                  {/* Progress animation */}
+                  <div className="w-full max-w-xs bg-gray-800 rounded-full h-2 mt-4">
+                    <div className="bg-gradient-to-r from-purple-500 to-indigo-500 h-2 rounded-full w-1/2 animate-pulse"></div>
+                  </div>
+
+                  {/* Optional tips section */}
+                  <div className="mt-6 text-sm text-gray-500 flex items-center gap-2">
+                    <Lightbulb className="h-4 w-4 text-yellow-400" />
+                    <span>Pro tip: Send the invite link directly!</span>
+                  </div>
+                </div>
               </div>
             )}
           </div>

@@ -130,3 +130,15 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.animate-spin {
+  animation: spin 1.5s linear infinite;
+}
+.animation-delay-200 {
+  animation-delay: 0.2s;
+}
