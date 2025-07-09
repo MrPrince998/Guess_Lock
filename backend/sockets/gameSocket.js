@@ -81,35 +81,110 @@ function registerGameSocket(io, socket) {
       ready: false,
     };
 
+    // After a player joins:
     room.players.set(playerId, player);
     socket.join(roomId);
 
     callback({ roomId: roomId, playerId: playerId });
 
     socket.to(roomId).emit("playerJoined", playerName);
+
+    // Emit updated room data to all players in the room
+    io.to(roomId).emit("roomData", {
+      players: [...room.players.values()].map((p) => ({
+        id: p.id,
+        name: p.name,
+        // Optionally add: ready: p.ready
+      })),
+    });
   });
 
   socket.on("submitSecret", ({ roomId, playerId, secretNumber }) => {
-    const room = rooms.get(roomId);
-    const player = room?.players.get(playerId);
-    if (!room || !player) return socket.emit("error", "Invalid room or player");
+    console.log("=== submitSecret received ===");
+    console.log("Data:", { roomId, playerId, secretNumber });
 
-    if (!validateNumber(secretNumber)) {
-      return socket.emit("error", "Invalid number. Must be 4 unique digits.");
+    const room = rooms.get(roomId);
+    console.log("Room found:", !!room);
+
+    const player = room?.players.get(playerId);
+    console.log("Player found:", !!player, player?.name);
+
+    if (!room || !player) {
+      console.error("Invalid room or player:", { roomId, playerId });
+      return socket.emit("error", "Invalid room or player");
     }
 
+    // Validate the secret number
+    if (!/^\d{4}$/.test(secretNumber)) {
+      console.error("Invalid number format:", secretNumber);
+      return socket.emit("error", "Secret number must be exactly 4 digits");
+    }
+
+    const digits = secretNumber.split("");
+    const uniqueDigits = new Set(digits);
+    if (uniqueDigits.size !== 4) {
+      console.error("Non-unique digits:", secretNumber);
+      return socket.emit("error", "All digits must be unique");
+    }
+
+    // Set the secret number and mark as ready
     player.secretNumber = secretNumber;
     player.ready = true;
 
-    const allReady = [...room.players.values()].every((p) => p.ready);
-    if (allReady) {
+    console.log(`✅ Player ${player.name} set secret number and is ready`);
+
+    // Send confirmation to the player who submitted
+    socket.emit("secretSubmitted", {
+      success: true,
+      message: "Secret number set successfully",
+    });
+    console.log("✅ Sent secretSubmitted confirmation");
+
+    // Check if all players are ready
+    const allPlayers = [...room.players.values()];
+    const readyPlayers = allPlayers.filter((p) => p.ready);
+    const allReady = readyPlayers.length === room.players.size;
+
+    console.log(
+      `Players status: ${readyPlayers.length}/${room.players.size} ready`
+    );
+    console.log(
+      "All players:",
+      allPlayers.map((p) => ({ name: p.name, ready: p.ready }))
+    );
+
+    // Notify other players that this player is ready
+    const playerReadyEvent = {
+      playerName: player.name,
+      readyCount: readyPlayers.length,
+      totalPlayers: room.players.size,
+    };
+    console.log("✅ Emitting playerReady event:", playerReadyEvent);
+    socket.to(roomId).emit("playerReady", playerReadyEvent);
+
+    if (allReady && room.players.size >= 2) {
+      // All players are ready, start the game
       const playerIds = [...room.players.keys()];
       room.currentTurn =
         playerIds[Math.floor(Math.random() * playerIds.length)];
-      io.to(roomId).emit("gameStarted", {
+
+      const gameStartedEvent = {
         currentPlayer: room.players.get(room.currentTurn).name,
         currentPlayerId: room.currentTurn,
-      });
+        message: "All players have set their numbers. Game starting!",
+      };
+
+      console.log("🎮 All players ready, starting game");
+      console.log("✅ Emitting gameStarted to room:", roomId);
+      console.log("✅ gameStarted event data:", gameStartedEvent);
+
+      // Emit to ALL players in the room (including the sender)
+      io.to(roomId).emit("gameStarted", gameStartedEvent);
+
+      // Also emit to the current socket (as backup)
+      socket.emit("gameStarted", gameStartedEvent);
+    } else {
+      console.log("⏳ Waiting for more players to be ready");
     }
   });
 
@@ -304,6 +379,20 @@ function registerGameSocket(io, socket) {
     });
 
     socket.to(roomId).emit("playerReconnected", player.name);
+  });
+
+  socket.on("requestRoomData", (roomId) => {
+    const room = rooms.get(roomId);
+    if (!room) return socket.emit("error", "Room not found");
+
+    // Send the actual players in the room
+    io.to(socket.id).emit("roomData", {
+      players: [...room.players.values()].map((p) => ({
+        id: p.id,
+        name: p.name,
+        // Optionally add: ready: p.ready
+      })),
+    });
   });
 }
 
