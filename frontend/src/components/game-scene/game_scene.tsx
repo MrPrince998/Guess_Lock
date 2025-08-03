@@ -1,14 +1,24 @@
 import { useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { Gamepad2, Users, Swords, Shield } from "lucide-react";
-import { motion } from "framer-motion";
+import { useEffect, useState, useCallback } from "react";
+import {
+  Gamepad2,
+  Users,
+  Swords,
+  Send,
+  RotateCw,
+  User,
+  Clock,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import SetDigitModal from "../model/set-digit-modal";
 import { joinGameModel } from "@/components/model/joinGameModel";
 import { hostGameModel } from "@/components/model/hostGameModel";
 import socket from "@/utils/socket";
-import { Avatar, AvatarImage } from "@/components/ui/avatar";
-import UserChatModal from "../UserChatModal/UserChatModal";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "../ui/input";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 const GameScene = () => {
   const location = useLocation();
@@ -16,414 +26,482 @@ const GameScene = () => {
   const [hostState, setHostState] = useState(hostGameModel.getState());
   const [gameStarted, setGameStarted] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
-
-  // Use state for userSecretNumber so it triggers re-renders
   const [userSecretNumber, setUserSecretNumber] = useState(
     sessionStorage.getItem("secretNumber")
   );
+  const [currentTurn, setCurrentTurn] = useState<string | null>(null);
 
-  // Add debugging for navigation state
-  console.log("=== GameScene Navigation Debug ===");
-  console.log("location.state:", location.state);
-  console.log("joinState:", joinState);
-  console.log("hostState:", hostState);
+  // Debugging logs
+  useEffect(() => {
+    console.log("GameScene state update:", {
+      gameStarted,
+      opponentReady,
+      userSecretNumber,
+      currentTurn,
+    });
+  }, [gameStarted, opponentReady, userSecretNumber, currentTurn]);
 
   const gameData = location.state || {};
   const isHost = gameData.isHost || false;
 
-  // Get roomId and roomCode from multiple sources with sessionStorage fallback
+  // Get game identifiers with fallbacks
   const roomId =
     gameData.roomId ||
     (isHost ? hostState.roomId : joinState.roomId) ||
     sessionStorage.getItem("roomId");
-
   const roomCode =
     gameData.roomCode ||
     (isHost ? hostState.roomCode : joinState.roomCode) ||
     sessionStorage.getItem("roomCode");
-
   const playerId =
     gameData.playerId ||
     (isHost ? socket.id : joinState.playerId) ||
     sessionStorage.getItem("playerId") ||
     socket.id;
 
-  console.log("=== Computed Values ===");
-  console.log("roomId:", roomId);
-  console.log("roomCode:", roomCode);
-  console.log("playerId:", playerId);
-  console.log("isHost:", isHost);
-
-  // Early return if essential data is missing
+  // Handle missing data
   if (!roomId || !playerId) {
-    console.error("❌ Missing essential data:", { roomId, playerId });
     return (
       <div className="h-screen w-full bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
         <div className="text-center text-white">
           <h2 className="text-xl font-bold mb-4">Missing Game Data</h2>
           <p className="text-gray-400 mb-4">
-            Room ID or Player ID is missing. Please rejoin the game.
+            Essential game information is missing. Please rejoin the game.
           </p>
           <Button onClick={() => (window.location.href = "/")}>
-            Go to Home
+            Return to Home
           </Button>
         </div>
       </div>
     );
   }
 
-  // Debug what component will render
-  if (!userSecretNumber) {
-    console.log("❌ Will render SetDigitModal - no secret number");
-  } else if (!gameStarted) {
-    console.log("⏳ Will render WaitingForOpponent - game not started");
-  } else {
-    console.log("🎮 Will render GameStartPanel - game started!");
-  }
-
+  // Socket event handlers
   useEffect(() => {
-    console.log("Setting up socket listeners...");
-
-    const unsubJoin = joinGameModel.subscribe(setJoinState);
-    const unsubHost = hostGameModel.subscribe(setHostState);
-
-    // Listen for game events
-    const handlePlayerReady = (data: any) => {
-      console.log("🟢 Player ready event received:", data);
+    const handlePlayerReady = (data: { playerId: string }) => {
+      console.log("Player ready:", data.playerId);
       setOpponentReady(true);
+      toast.info("Opponent is ready!");
     };
 
-    const handleGameStarted = (data: any) => {
-      console.log("🎮 Game started event received:", data);
+    const handleGameStarted = (data: { currentTurn: string }) => {
+      console.log("Game started! Current turn:", data.currentTurn);
       setGameStarted(true);
+      setCurrentTurn(data.currentTurn);
+      toast.success("Game started!");
     };
 
-    // Remove any existing listeners first
-    socket.off("playerReady");
-    socket.off("gameStarted");
+    const handleTurnChange = (data: { currentTurn: string }) => {
+      console.log("Turn changed to:", data.currentTurn);
+      setCurrentTurn(data.currentTurn);
+      toast.info(
+        data.currentTurn === playerId ? "Your turn!" : "Opponent's turn"
+      );
+    };
 
-    // Add new listeners
     socket.on("playerReady", handlePlayerReady);
     socket.on("gameStarted", handleGameStarted);
-
-    console.log("Socket listeners attached");
+    socket.on("turnChanged", handleTurnChange);
 
     return () => {
-      console.log("Cleaning up socket listeners");
-      unsubJoin();
-      unsubHost();
       socket.off("playerReady", handlePlayerReady);
       socket.off("gameStarted", handleGameStarted);
+      socket.off("turnChanged", handleTurnChange);
     };
-  }, []);
+  }, [playerId]);
 
-  // Add useEffect to monitor sessionStorage changes
-  useEffect(() => {
-    const checkSecretNumber = () => {
-      const secretFromStorage = sessionStorage.getItem("secretNumber");
-      // console.log("Checking sessionStorage:", secretFromStorage);
-      if (secretFromStorage && secretFromStorage !== userSecretNumber) {
-        console.log("Updating userSecretNumber from sessionStorage");
-        setUserSecretNumber(secretFromStorage);
-      }
-    };
+  // Handle secret number submission
+  const handleSecretSubmitted = useCallback(
+    (number: string) => {
+      setUserSecretNumber(number);
+      sessionStorage.setItem("secretNumber", number);
+      socket.emit("playerReady", { playerId, roomId });
+    },
+    [playerId, roomId]
+  );
 
-    // Check immediately
-    checkSecretNumber();
+  // Get player names
+  const currentPlayerName = localStorage.getItem("playerName") || "Player";
+  const opponentName = isHost
+    ? hostState.players.find((p) => p.id !== playerId)?.name || "Opponent"
+    : "Host";
 
-    // Set up an interval to check periodically (as fallback)
-    const interval = setInterval(checkSecretNumber, 500);
-
-    return () => clearInterval(interval);
-  }, [userSecretNumber]);
-
-  useEffect(() => {
-    // Store navigation data in sessionStorage as backup
-    if (
-      gameData.roomId &&
-      gameData.roomId !== sessionStorage.getItem("roomId")
-    ) {
-      sessionStorage.setItem("roomId", gameData.roomId);
-      console.log("Stored roomId in sessionStorage:", gameData.roomId);
-    }
-    if (
-      gameData.roomCode &&
-      gameData.roomCode !== sessionStorage.getItem("roomCode")
-    ) {
-      sessionStorage.setItem("roomCode", gameData.roomCode);
-      console.log("Stored roomCode in sessionStorage:", gameData.roomCode);
-    }
-    if (
-      gameData.playerId &&
-      gameData.playerId !== sessionStorage.getItem("playerId")
-    ) {
-      sessionStorage.setItem("playerId", gameData.playerId);
-      console.log("Stored playerId in sessionStorage:", gameData.playerId);
-    }
-  }, [gameData]);
-
-  // const gameData = location.state || {};
-  // const isHost = gameData.isHost || false;
-
-  // const roomId = useMemo(
-  //   () => gameData.roomId || (isHost ? hostState.roomId : joinState.roomId),
-  //   [gameData.roomId, isHost, hostState.roomId, joinState.roomId]
-  // );
-
-  // const playerId = useMemo(
-  //   () => gameData.playerId || (isHost ? socket.id : joinState.playerId),
-  //   [gameData.playerId, isHost, joinState.playerId]
-  // );
-
-  console.log("GameScene state:", {
-    isHost,
-    roomId,
-    playerId,
-    userSecretNumber,
-    gameStarted,
-    opponentReady,
-    hostPlayers: hostState.players.length,
-  });
-
-  // Function to handle when secret number is submitted
-  const handleSecretSubmitted = (number: string) => {
-    console.log("=== handleSecretSubmitted called ===");
-    setUserSecretNumber(number); // update immediately
-    // Optionally, also update sessionStorage for consistency
-    sessionStorage.setItem("secretNumber", number);
-  };
-
-  console.log("=== Render Decision ===");
-  console.log("userSecretNumber exists?", !!userSecretNumber);
-  console.log("gameStarted?", gameStarted);
-
-  // Show SetDigitModal only if user hasn't set their secret number AND game hasn't started
-  if (!userSecretNumber && !gameStarted) {
+  // Render different states
+  if (!userSecretNumber) {
     return (
       <div className="h-screen w-full bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
         <SetDigitModal
           roomId={roomId}
           playerId={playerId}
-          onSubmit={handleSecretSubmitted} // pass the number directly
+          onSubmit={handleSecretSubmitted}
         />
       </div>
     );
   }
 
-  // Test function to manually trigger game start (for debugging)
-  const testGameStart = () => {
-    console.log("🧪 Manually triggering game start for testing");
-    setGameStarted(true);
-  };
-
-  // Show waiting room if game hasn't started yet
   if (!gameStarted) {
-    console.log("Rendering WaitingForOpponent");
     return (
       <div className="h-screen w-full bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
-        <WaitingForOpponent
-          roomCode={isHost ? hostState.roomCode : joinState.roomCode}
-          opponentReady={opponentReady}
-          onTestGameStart={testGameStart} // Add this for debugging
-        />
+        <AnimatePresence mode="wait">
+          <WaitingForOpponent
+            key="waiting-for-opponent"
+            roomCode={roomCode}
+            opponentReady={opponentReady}
+            isHost={isHost}
+            gameStarted={gameStarted}
+          />
+        </AnimatePresence>
       </div>
     );
   }
 
-  // Show game start panel when both players are ready
-  console.log("Rendering GameStartPanel");
-  // const opponentName = isHost ? hostState.players[0]?.name : "Host";
-  const currentPlayerName = localStorage.getItem("playerName") || "Guest";
-  let opponentName = "Opponent";
+  return (
+    <GamePlayArea
+      isHost={isHost}
+      currentPlayerName={currentPlayerName}
+      opponentName={opponentName}
+      playerId={playerId}
+      roomId={roomId}
+      currentTurn={currentTurn}
+    />
+  );
+};
 
-  if (isHost) {
-    opponentName =
-      hostState.players?.find((player) => player?.name !== currentPlayerName)
-        ?.name || "Opponent";
-  } else {
-    opponentName =
-      joinState.players?.find((player) => player?.name !== currentPlayerName)
-        ?.name || "Host";
-  }
+// WaitingForOpponent Component
+const WaitingForOpponent = ({
+  roomCode,
+  opponentReady,
+  isHost,
+  gameStarted,
+}: {
+  roomCode?: string;
+  opponentReady: boolean;
+  isHost: boolean;
+  gameStarted: boolean;
+}) => {
+  const [showCopied, setShowCopied] = useState(false);
 
-  const player1Name = currentPlayerName;
-
-  const player2Name =
-    joinState.players?.find((player) => player?.name !== currentPlayerName)
-      ?.name || "Opponent";
+  const copyRoomCode = () => {
+    if (roomCode) {
+      navigator.clipboard.writeText(roomCode);
+      setShowCopied(true);
+      setTimeout(() => setShowCopied(false), 2000);
+    }
+  };
 
   return (
-    <div className="h-screen w-full bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center p-4">
-      <GameStartPanel
-        isHost={isHost}
-        opponentName={opponentName}
-        player1Name={player1Name}
-        player2Name={player2Name}
-      />
+    // <AnimatePresence mode="wait">
+    <motion.div
+      // key="waiting-for-opponent"
+      // initial={{ opacity: 0, y: 20 }}
+      // animate={{ opacity: 1, y: 0 }}
+      // exit={{ opacity: 0, y: -20 }}
+      // transition={{ duration: 0.3 }}
+      className="bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-700 p-8 max-w-md w-full shadow-2xl text-center"
+    >
+      <div className="flex flex-col items-center gap-6">
+        <div className="relative">
+          <div className="absolute -inset-4 bg-purple-500/10 rounded-full blur-md"></div>
+          <div
+            className={cn(
+              "p-4 rounded-full relative",
+              opponentReady ? "bg-green-500/20" : "bg-purple-500/20"
+            )}
+          >
+            <Gamepad2
+              className={cn(
+                "h-8 w-8",
+                opponentReady ? "text-green-400" : "text-purple-400"
+              )}
+            />
+          </div>
+        </div>
+
+        <h1 className="text-2xl font-bold text-white">
+          {opponentReady ? "Ready to Start!" : "Waiting for Opponent"}
+        </h1>
+        <p className="text-gray-400">
+          {opponentReady
+            ? "Both players are ready!"
+            : isHost
+            ? "Share the room code below"
+            : "Waiting for host to start"}
+        </p>
+
+        <div className="w-full bg-gray-700 rounded-full h-2 mt-4">
+          <div
+            className={cn(
+              "h-2 rounded-full transition-all duration-500",
+              opponentReady
+                ? "bg-gradient-to-r from-green-500 to-emerald-500 w-full"
+                : "bg-gradient-to-r from-purple-500 to-indigo-500 w-1/2"
+            )}
+          ></div>
+        </div>
+
+        {roomCode && (
+          <div className="mt-6 w-full">
+            <div className="flex items-center justify-center gap-2">
+              <div className="relative flex-1 max-w-xs">
+                <Input
+                  value={roomCode}
+                  readOnly
+                  className="text-center font-mono text-lg bg-gray-700 border-gray-600"
+                />
+                <button
+                  onClick={copyRoomCode}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                >
+                  {showCopied ? "✓" : "Copy"}
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              Share this code with your friend
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
+    // </AnimatePresence>
+  );
+};
+
+// GamePlayArea Component
+const GamePlayArea = ({
+  isHost,
+  currentPlayerName,
+  opponentName,
+  playerId,
+  roomId,
+  currentTurn,
+}: {
+  isHost: boolean;
+  currentPlayerName: string;
+  opponentName: string;
+  playerId: string;
+  roomId: string;
+  currentTurn: string | null;
+}) => {
+  const [guess, setGuess] = useState("");
+  const [guessHistory, setGuessHistory] = useState<
+    Array<{
+      guess: string;
+      result: { correctPosition: number; correctDigit: number };
+    }>
+  >([]);
+  const [isMyTurn, setIsMyTurn] = useState(currentTurn === playerId);
+
+  interface GuessItem {
+    guess: string;
+    result: { correctPosition: number; correctDigit: number };
+  }
+  useEffect(() => {
+    setIsMyTurn(currentTurn === playerId);
+  }, [currentTurn, playerId]);
+
+  const handleSubmitGuess = () => {
+    if (guess.length !== 4 || !/^\d{4}$/.test(guess)) {
+      toast.error("Please enter a valid 4-digit number");
+      return;
+    }
+
+    socket.emit(
+      "makeGuess",
+      {
+        roomId,
+        playerId,
+        guess,
+      },
+      (response: {
+        success: boolean;
+        result?: { correctPosition: number; correctDigit: number };
+      }) => {
+        if (response.success && response.result) {
+          setGuessHistory((prev) => [
+            ...prev,
+            {
+              guess,
+              result: response.result,
+            } as GuessItem,
+          ]);
+          setGuess("");
+        }
+      }
+    );
+  };
+
+  return (
+    <div className="h-screen w-full bg-gradient-to-br from-gray-900 to-gray-800 p-4 overflow-hidden">
+      <div className="container mx-auto h-full flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-center py-4">
+          <div className="flex items-center gap-2">
+            <Gamepad2 className="text-purple-400" />
+            <span className="text-white font-medium">
+              Room: {roomId.substring(0, 8)}...
+            </span>
+          </div>
+          <div
+            className={cn(
+              "px-3 py-1 rounded-full text-sm flex items-center gap-1",
+              isMyTurn
+                ? "bg-green-500/20 text-green-400"
+                : "bg-gray-700 text-gray-400"
+            )}
+          >
+            {isMyTurn ? (
+              <>
+                <User className="h-3 w-3" />
+                <span>Your Turn</span>
+              </>
+            ) : (
+              <>
+                <Clock className="h-3 w-3" />
+                <span>Opponent's Turn</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Main Game Area */}
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Player 1 Panel */}
+          <PlayerPanel
+            name={currentPlayerName}
+            isCurrentPlayer={true}
+            isTurn={isMyTurn}
+          />
+
+          {/* Game Board */}
+          <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-6 flex flex-col">
+            <h2 className="text-center text-white font-bold mb-4">
+              Guess History
+            </h2>
+
+            {guessHistory.length > 0 ? (
+              <div className="space-y-2 flex-1 overflow-y-auto">
+                {guessHistory.map((item, index) => (
+                  <GuessResult
+                    key={index}
+                    guess={item.guess}
+                    result={item.result}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="flex-1 grid place-items-center text-gray-500">
+                <p>No guesses yet</p>
+              </div>
+            )}
+
+            {/* Guess Input */}
+            <div className="mt-4">
+              <div className="flex gap-2">
+                <Input
+                  value={guess}
+                  onChange={(e) =>
+                    setGuess(e.target.value.replace(/\D/g, "").slice(0, 4))
+                  }
+                  placeholder="Enter 4-digit guess"
+                  className="flex-1 text-center font-mono text-lg"
+                  disabled={!isMyTurn}
+                />
+                <Button
+                  onClick={handleSubmitGuess}
+                  disabled={!isMyTurn || guess.length !== 4}
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Guess
+                </Button>
+              </div>
+              {!isMyTurn && (
+                <p className="text-xs text-gray-500 mt-2 text-center">
+                  Wait for your turn to guess
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Player 2 Panel */}
+          <PlayerPanel
+            name={opponentName}
+            isCurrentPlayer={false}
+            isTurn={!isMyTurn}
+          />
+        </div>
+      </div>
     </div>
   );
 };
 
-const WaitingForOpponent = ({
-  roomCode,
-  opponentReady,
-  onTestGameStart,
+// PlayerPanel Component
+const PlayerPanel = ({
+  name,
+  isCurrentPlayer,
+  isTurn,
 }: {
-  roomCode?: string;
-  opponentReady: boolean;
-  onTestGameStart?: () => void;
-}) => (
-  <motion.div className="bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-700 p-8 max-w-md w-full shadow-2xl text-center">
-    <div className="flex flex-col items-center gap-6">
-      <div className="bg-purple-600/20 p-4 rounded-full">
-        <Gamepad2 className="h-8 w-8 text-purple-400" />
-      </div>
-      <h1 className="text-2xl font-bold text-white">Waiting for Opponent</h1>
-      <p className="text-gray-400">
-        {opponentReady
-          ? "Opponent is ready! Starting game..."
-          : "Waiting for opponent to set their secret number..."}
-      </p>
-
-      <div className="w-full bg-gray-700 rounded-full h-2 mt-4">
-        <div
-          className="bg-gradient-to-r from-purple-500 to-indigo-500 h-2 rounded-full transition-all"
-          style={{ width: opponentReady ? "100%" : "50%" }}
-        ></div>
-      </div>
-
-      <div className="mt-6 p-4 bg-gray-700/50 rounded-lg w-full">
-        <div className="flex items-center justify-center gap-3 text-sm">
-          <Users className="h-4 w-4 text-gray-400" />
-          <span className="text-gray-300">
-            Room Code:{" "}
-            <span className="font-mono font-bold text-purple-300">
-              {roomCode || "N/A"}
-            </span>
-          </span>
-        </div>
-      </div>
-
-      {/* Debug button - remove after fixing */}
-      {onTestGameStart && (
-        <Button
-          onClick={onTestGameStart}
-          variant="outline"
-          size="sm"
-          className="mt-4 text-xs"
-        >
-          🧪 Test Game Start
-        </Button>
-      )}
-    </div>
-  </motion.div>
-);
-
-const GameStartPanel = ({
-  isHost,
-  opponentName,
-  player1Name,
-  player2Name,
-}: {
-  isHost: boolean;
-  opponentName?: string;
-  player1Name?: string;
-  player2Name?: string;
+  name: string;
+  isCurrentPlayer: boolean;
+  isTurn: boolean;
 }) => {
-  const [startAnimation, setStartAnimation] = useState(true);
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    // Start the animation after a short delay
-    const timer = setTimeout(() => {
-      setStartAnimation(false);
-      setVisible(false);
-    }, 500); // Adjust delay as needed
-
-    return () => clearTimeout(timer);
-  }, []);
   return (
-    <div className="w-full">
-      {startAnimation && (
-        <div className="bg-gray-800/80 backdrop-blur-sm rounded-xl border border-gray-700 p-8 max-w-md w-full aspect-square shadow-2xl text-center">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="grid place-items-center h-full"
-          >
-            <div className="flex items-center justify-between gap-10">
-              {visible && (
-                <motion.div
-                  initial={{ x: -100, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: -100, opacity: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <Avatar className="h-40 w-40">
-                    <AvatarImage
-                      src="https://avatars.githubusercontent.com/u/123456789?v=4"
-                      alt={player1Name}
-                    />
-                  </Avatar>
-                  <h1 className="font-bold text-secondary">{player1Name}</h1>
-                </motion.div>
-              )}
-              <div className="relative">
-                <div className="absolute -inset-4 bg-purple-500/10 rounded-full blur-md"></div>
-                <div className="bg-gradient-to-br from-purple-600 to-indigo-600 p-4 h-22 aspect-square rounded-full relative grid items-center justify-center">
-                  <Swords className="h-8 w-8 text-secondary" />
-                  <span className="text-secondary font-bold">V/S</span>
-                </div>
-              </div>
-              {visible && (
-                <motion.div
-                  initial={{ x: 100, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  exit={{ x: 100, opacity: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <Avatar className="w-40 h-40">
-                    <AvatarImage
-                      src="https://avatars.githubusercontent.com/u/123456789?v=4"
-                      alt={player2Name}
-                    />
-                  </Avatar>
-                  <h1 className="font-bold text-secondary">{player2Name}</h1>
-                </motion.div>
-              )}
-            </div>
-          </motion.div>
-        </div>
+    <div
+      className={cn(
+        "bg-gray-800/50 border rounded-xl p-6 flex flex-col items-center",
+        isTurn ? "border-purple-500" : "border-gray-700"
       )}
-      <div className="flex h-full items-start justify-between py-10">
-        <div className="flex flex-col gap-4 items-center">
-          <Avatar className="h-40 w-40">
-            <AvatarImage
-              src="https://avatars.githubusercontent.com/u/123456789?v=4"
-              alt={player1Name}
-            />
-          </Avatar>
-          <h1 className="font-bold text-secondary">{player1Name}</h1>
-        </div>
-        <div className="w-120 min-h-screen bg-secondary">
-          <UserChatModal
-            playerName={
-              isHost ? player1Name ?? "Player" : player2Name ?? "Player"
-            }
+    >
+      <div className="relative mb-4">
+        <Avatar className="h-24 w-24">
+          <AvatarImage
+            src={`https://api.dicebear.com/7.x/bottts/svg?seed=${name}`}
           />
-        </div>
-        <div className="flex flex-col gap-4 items-center">
-          <Avatar className="h-40 w-40">
-            <AvatarImage
-              src="https://avatars.githubusercontent.com/u/123456789?v=4"
-              alt={player2Name}
-            />
-          </Avatar>
-          <h1 className="font-bold text-secondary">{player2Name}</h1>
+          <AvatarFallback>
+            <User className="h-12 w-12 text-gray-400" />
+          </AvatarFallback>
+        </Avatar>
+        {isTurn && (
+          <div className="absolute -bottom-2 -right-2 bg-purple-500 rounded-full p-1.5">
+            <RotateCw className="h-4 w-4 text-white animate-spin" />
+          </div>
+        )}
+      </div>
+
+      <h3
+        className={cn(
+          "text-lg font-bold mb-1",
+          isCurrentPlayer ? "text-purple-400" : "text-white"
+        )}
+      >
+        {name}
+      </h3>
+      <span className="text-xs text-gray-400">
+        {isCurrentPlayer ? "You" : "Opponent"}
+      </span>
+    </div>
+  );
+};
+
+// GuessResult Component
+const GuessResult = ({
+  guess,
+  result,
+}: {
+  guess: string;
+  result: { correctPosition: number; correctDigit: number };
+}) => {
+  return (
+    <div className="bg-gray-700/50 rounded-lg p-3">
+      <div className="flex justify-between items-center">
+        <div className="font-mono text-lg font-bold text-white">{guess}</div>
+        <div className="flex gap-2">
+          <div className="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
+            {result.correctPosition} correct
+          </div>
+          <div className="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded text-xs">
+            {result.correctDigit} misplaced
+          </div>
         </div>
       </div>
     </div>
