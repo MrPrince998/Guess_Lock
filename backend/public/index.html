@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Guess the Number Game - API Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+      }
+      h1,
+      h2 {
+        color: #333;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      input {
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin: 5px;
+      }
+      .result {
+        background: #e9ecef;
+        padding: 10px;
+        border-radius: 4px;
+        margin-top: 10px;
+        font-family: monospace;
+        white-space: pre-wrap;
+      }
+      .success {
+        background: #d4edda;
+        border-color: #c3e6cb;
+        color: #155724;
+      }
+      .error {
+        background: #f8d7da;
+        border-color: #f5c6cb;
+        color: #721c24;
+      }
+      .game-info {
+        background: #fff3cd;
+        border-color: #ffeaa7;
+        color: #856404;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🎯 Guess the Number Game - API Demo</h1>
+      <p>
+        This is a demonstration of the REST API for the Guess the Number Game.
+      </p>
+
+      <div class="game-info">
+        <strong>Game Rules:</strong>
+        <ul>
+          <li>Each player sets a 4-digit secret number with unique digits</li>
+          <li>Players take turns guessing each other's numbers</li>
+          <li>Bulls = correct digits in correct position</li>
+          <li>Cows = correct digits in wrong position</li>
+          <li>First to guess correctly wins!</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="container">
+      <h2>🎮 Game Management</h2>
+
+      <div>
+        <h3>Create Game</h3>
+        <input
+          type="text"
+          id="hostName"
+          placeholder="Host Name"
+          value="Alice"
+        />
+        <button onclick="createGame()">Create Game</button>
+      </div>
+
+      <div>
+        <h3>Join Game</h3>
+        <input
+          type="text"
+          id="gameCode"
+          placeholder="Game Code"
+          maxlength="4"
+        />
+        <input
+          type="text"
+          id="playerName"
+          placeholder="Player Name"
+          value="Bob"
+        />
+        <button onclick="joinGameByCode()">Join by Code</button>
+      </div>
+
+      <div>
+        <h3>Game Actions</h3>
+        <button onclick="getGames()">Get All Games</button>
+        <button onclick="getStats()">Get Statistics</button>
+      </div>
+    </div>
+
+    <div class="container">
+      <h2>🎯 Gameplay</h2>
+
+      <div>
+        <h3>Set Secret Number</h3>
+        <input type="text" id="gameId" placeholder="Game ID" />
+        <input type="text" id="playerId" placeholder="Player ID" />
+        <input
+          type="text"
+          id="secretNumber"
+          placeholder="Secret Number (e.g., 1234)"
+          maxlength="4"
+        />
+        <button onclick="setSecretNumber()">Set Secret</button>
+      </div>
+
+      <div>
+        <h3>Make Guess</h3>
+        <input type="text" id="guessGameId" placeholder="Game ID" />
+        <input type="text" id="guessPlayerId" placeholder="Player ID" />
+        <input
+          type="text"
+          id="guess"
+          placeholder="Guess (e.g., 5678)"
+          maxlength="4"
+        />
+        <button onclick="makeGuess()">Make Guess</button>
+      </div>
+    </div>
+
+    <div class="container">
+      <h2>📊 API Response</h2>
+      <div id="result" class="result">API responses will appear here...</div>
+    </div>
+
+    <script>
+      const API_BASE = "http://localhost:3000/api/game";
+
+      function displayResult(data, isError = false) {
+        const resultDiv = document.getElementById("result");
+        resultDiv.className = "result " + (isError ? "error" : "success");
+        resultDiv.textContent = JSON.stringify(data, null, 2);
+      }
+
+      async function createGame() {
+        try {
+          const hostName = document.getElementById("hostName").value;
+          if (!hostName) {
+            alert("Please enter a host name");
+            return;
+          }
+
+          const response = await fetch(API_BASE, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ hostName }),
+          });
+
+          const data = await response.json();
+          displayResult(data, !response.ok);
+
+          if (response.ok) {
+            // Auto-fill the game ID and player ID for convenience
+            document.getElementById("gameId").value = data.data.game.id;
+            document.getElementById("playerId").value = data.data.playerId;
+            document.getElementById("guessGameId").value = data.data.game.id;
+            document.getElementById("guessPlayerId").value = data.data.playerId;
+            document.getElementById("gameCode").value = data.data.game.code;
+          }
+        } catch (error) {
+          displayResult({ error: error.message }, true);
+        }
+      }
+
+      async function joinGameByCode() {
+        try {
+          const gameCode = document.getElementById("gameCode").value;
+          const playerName = document.getElementById("playerName").value;
+
+          if (!gameCode || !playerName) {
+            alert("Please enter both game code and player name");
+            return;
+          }
+
+          const response = await fetch(`${API_BASE}/join-by-code/${gameCode}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ playerName }),
+          });
+
+          const data = await response.json();
+          displayResult(data, !response.ok);
+        } catch (error) {
+          displayResult({ error: error.message }, true);
+        }
+      }
+
+      async function getGames() {
+        try {
+          const response = await fetch(API_BASE);
+          const data = await response.json();
+          displayResult(data, !response.ok);
+        } catch (error) {
+          displayResult({ error: error.message }, true);
+        }
+      }
+
+      async function getStats() {
+        try {
+          const response = await fetch(`${API_BASE}/stats`);
+          const data = await response.json();
+          displayResult(data, !response.ok);
+        } catch (error) {
+          displayResult({ error: error.message }, true);
+        }
+      }
+
+      async function setSecretNumber() {
+        try {
+          const gameId = document.getElementById("gameId").value;
+          const playerId = document.getElementById("playerId").value;
+          const secretNumber = document.getElementById("secretNumber").value;
+
+          if (!gameId || !playerId || !secretNumber) {
+            alert("Please fill in all fields");
+            return;
+          }
+
+          if (!/^\d{4}$/.test(secretNumber)) {
+            alert("Secret number must be exactly 4 digits");
+            return;
+          }
+
+          const response = await fetch(
+            `${API_BASE}/${gameId}/players/${playerId}/secret`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ secretNumber }),
+            }
+          );
+
+          const data = await response.json();
+          displayResult(data, !response.ok);
+        } catch (error) {
+          displayResult({ error: error.message }, true);
+        }
+      }
+
+      async function makeGuess() {
+        try {
+          const gameId = document.getElementById("guessGameId").value;
+          const playerId = document.getElementById("guessPlayerId").value;
+          const guess = document.getElementById("guess").value;
+
+          if (!gameId || !playerId || !guess) {
+            alert("Please fill in all fields");
+            return;
+          }
+
+          if (!/^\d{4}$/.test(guess)) {
+            alert("Guess must be exactly 4 digits");
+            return;
+          }
+
+          const response = await fetch(
+            `${API_BASE}/${gameId}/players/${playerId}/guess`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ guess }),
+            }
+          );
+
+          const data = await response.json();
+          displayResult(data, !response.ok);
+        } catch (error) {
+          displayResult({ error: error.message }, true);
+        }
+      }
+
+      // Load initial stats on page load
+      window.onload = () => {
+        getStats();
+      };
+    </script>
+  </body>
+</html>
